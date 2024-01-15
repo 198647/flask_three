@@ -24,7 +24,7 @@
 
 <body>
   <div id="idcanvas">
-    <!-- <button id="upload">上传模型</button> -->
+    <button id="upload">上传模型</button>
   </div>
 <script type="importmap">
     {
@@ -105,6 +105,7 @@
     }
 
     function loadModel() {
+
       const loader = new FBXLoader();
       loader.load('/static/resources/models/pg_ik.fbx', function (pg) {
         pg.rotation.set(0, 0.7, 0);
@@ -129,7 +130,11 @@
             transformControls4 = createTransformControl('左腿控制_L');
           }
         });
+
+
+
       });
+
     }
 
     function createTransformControl(boneName) {
