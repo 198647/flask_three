@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>fbx 模型加载示例</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+    }
+
+    #canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      border: none;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="idcanvas">
+    <!-- <button id="downloadButton">下载模型</button> -->
+  </div>
+<script type="importmap">
+    {
+        "imports": {
+            "three": "/static/build/three.module.js"
+        }
+    }
+</script>
+
+<script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from '/static/examples/jsm/controls/OrbitControls.js';
+    import { FBXLoader } from '/static/examples/jsm/loaders/FBXLoader.js';
+    import { TransformControls } from '/static/examples/jsm/controls/TransformControls.js';
+    import { CCDIKSolver, CCDIKHelper } from '/static/examples/jsm/animation/CCDIKSolver.js';
+
+    // declare variables
+    let scene, renderer, camera, controls, skeletonHelper;
+    let shouldUpdateIK = false; // 初始值为false
+    let skinnedMesh;
+    let IKsolvers; // 将这个变量移动到顶层作用域
+
+    let axesHelper;
+    let IKSolver;
+    let transformControls, transformControls2, transformControls3, transformControls4;
+    const rootbones = {};//Bone array
+    // 定义四肢的IK链数据结构
+    const limbIKData = {
+      leftArm: {
+        target: '左手控制_L',
+        effector: 'mixamorigLeftHand',
+        links: ['mixamorigLeftForeArm', 'mixamorigLeftArm']
+      },
+      rightArm: {
+        target: '右手控制_R',
+        effector: 'mixamorigRightHand',
+        links: ['mixamorigRightForeArm', 'mixamorigRightArm']
+      },
+      leftLeg: {
+        target: '左腿控制_L',
+        effector: 'mixamorigLeftFoot',
+        links: ['mixamorigLeftLeg', 'mixamorigLeftUpLeg']
+      },
+      rightLeg: {
+        target: '右腿控制_R',
+        effector: 'mixamorigRightFoot',
+        links: ['mixamorigRightLeg', 'mixamorigRightUpLeg']
+      }
+      // 更多的肢体可以按照此格式继续添加
+    };
+    init();
+    loadModel();
+    render();
+    function init() {
+      scene = new THREE.Scene();
+      renderer = new THREE.WebGLRenderer({ antialias: true, });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setClearAlpha(0.0);
+      document.getElementById('idcanvas').appendChild(renderer.domElement);
+
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+      camera.position.set(100, 50, 100);
+      camera.lookAt(0, 0, 0);
+
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+
+      axesHelper = new THREE.AxesHelper(50);
+      scene.add(axesHelper);
+
+      const ambient = new THREE.AmbientLight(0xffffff, 2);
+      scene.add(ambient);
+
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5); // 添加一个白色平行光源
+      directionalLight.position.set(10, 10, 10); // 设置平行光源的位置
+      scene.add(directionalLight); // 将平行光源添加到场景中
+    }
+
+    function loadModel() {
+
+      const loader = new FBXLoader();
+      loader.load('/static/resources/models/pg_ik.fbx', function (pg) {
+        pg.rotation.set(0, 0.7, 0);
+        pg.position.set(0, -100, 0);
+        scene.add(pg);
+        pg.traverse(function (child) {
+          if (child.isSkinnedMesh) {
+            skinnedMesh = child; // 确保这一行成功找到了网格
+            // 找到skinnedMesh后，再将pg添加到场景中
+            scene.add(pg);
+            IKsolvers = setupIKSolvers(skinnedMesh, limbIKData); // 现在可以初始化IKsolvers
+
+            // 使用新的创建控制器的方法
+            rootbones.右手控制_R = pg.getObjectByName('右手控制_R');
+            rootbones.左手控制_L = pg.getObjectByName('左手控制_L');
+            rootbones.右腿控制_R = pg.getObjectByName('右腿控制_R');
+            rootbones.左腿控制_L = pg.getObjectByName('左腿控制_L');
+
+            transformControls = createTransformControl('右手控制_R');
+            transformControls2 = createTransformControl('左手控制_L');
+            transformControls3 = createTransformControl('右腿控制_R');
+            transformControls4 = createTransformControl('左腿控制_L');
+          }
+        });
+
+
+
+      });
+
+    }
+
+    function createTransformControl(boneName) {
+      let control = new TransformControls(camera, renderer.domElement);
+      control.size = 0.75;
+      control.attach(rootbones[boneName]);
+      scene.add(control);
+      control.setMode('translate');
+
+      // 添加鼠标事件监听器，用于开启和关闭IK更新
+      control.addEventListener('mouseDown', () => {
+        controls.enabled = false;
+        shouldUpdateIK = true;
+      });
+      control.addEventListener('mouseUp', () => {
+        controls.enabled = true;
+        shouldUpdateIK = false;
+      });
+
+      return control;
+    }
+
+    function setupIKSolvers(skinnedMesh, limbIKData) {
+      // 存储每个肢体的IK解算器
+      const IKsolvers = {};
+
+      // 遍历limbIKData中的每个肢体
+      for (const limbName in limbIKData) {
+        const limb = limbIKData[limbName];
+        const boneArray = skinnedMesh.skeleton.bones;
+        // 创建IK链的数据结构
+        const ik = {
+          target: boneArray.findIndex(bone => bone.name === limb.target),
+          effector: boneArray.findIndex(bone => bone.name === limb.effector),
+          links: limb.links.map(linkName => ({
+            index: boneArray.findIndex(bone => bone.name === linkName)
+          }))
+        };
+        // 使用CCDIKSolver初始化IK解算器
+        IKsolvers[limbName] = new CCDIKSolver(skinnedMesh, [ik]);
+        const ccdikhelper = new CCDIKHelper(skinnedMesh, [ik], 0.01);
+        scene.add(ccdikhelper);
+      }
+
+      return IKsolvers;
+    }
+
+    function render() {
+      requestAnimationFrame(render);
+      // 更新IK
+      if (shouldUpdateIK) {
+        updateIK();
+      }
+      renderer.render(scene, camera);
+    }
+    // 更新IK的函数
+    function updateIK() {
+      if (IKsolvers) {
+        for (const solver of Object.values(IKsolvers)) {
+          solver.update();
+        }
+      }
+    }
+
+
+    window.onresize = function () {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      renderer.setSize(width, height);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      renderer.render(scene, camera);
+    };
+
+</script>
+
+
+
+</body>
+
+</html>
