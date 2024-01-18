@@ -24,9 +24,12 @@
 
 <body>
   <div id="idcanvas">
-    <!-- <button id="upload">上传模型</button> -->
+    <form action="/upload" id='upload-form' method="POST" enctype="multipart/form-data">
+      <input type="file" id='file-input' name="file">
+      <input type="submit" value="Upload File">
+    </form>
   </div>
-<script type="importmap">
+  <script type="importmap">
     {
         "imports": {
             "three": "/static/build/three.module.js"
@@ -34,7 +37,7 @@
     }
 </script>
 
-<script type="module">
+  <script type="module">
     import * as THREE from 'three';
     import { OrbitControls } from '/static/examples/jsm/controls/OrbitControls.js';
     import { FBXLoader } from '/static/examples/jsm/loaders/FBXLoader.js';
@@ -42,13 +45,8 @@
     import { CCDIKSolver, CCDIKHelper } from '/static/examples/jsm/animation/CCDIKSolver.js';
 
     // declare variables
-    let scene, renderer, camera, controls, skeletonHelper;
+    let scene, renderer, camera, controls, skeletonHelper, axesHelper, skinnedMesh, IKSolver, IKsolvers;
     let shouldUpdateIK = false; // 初始值为false
-    let skinnedMesh;
-    let IKsolvers; // 将这个变量移动到顶层作用域
-
-    let axesHelper;
-    let IKSolver;
     let transformControls, transformControls2, transformControls3, transformControls4;
     const rootbones = {};//Bone array
     // 定义四肢的IK链数据结构
@@ -78,6 +76,9 @@
     init();
     loadModel();
     render();
+
+
+
     function init() {
       scene = new THREE.Scene();
       renderer = new THREE.WebGLRenderer({ antialias: true, });
@@ -104,12 +105,13 @@
       scene.add(directionalLight); // 将平行光源添加到场景中
     }
 
-    function loadModel() {
+    function loadModel(modelPath = '/static/resources/models/pg_ik_Modify_parent.fbx') {
       const loader = new FBXLoader();
-      loader.load('/static/resources/models/pg_ik.fbx', function (pg) {
+      loader.load(modelPath, function (pg) {
         pg.rotation.set(0, 0.7, 0);
         pg.position.set(0, -100, 0);
         scene.add(pg);
+        console.log(scene);
         pg.traverse(function (child) {
           if (child.isSkinnedMesh) {
             skinnedMesh = child; // 确保这一行成功找到了网格
@@ -131,6 +133,53 @@
         });
       });
     }
+    function clearScene() {
+      while (scene.children.length > 0) {
+        let child = scene.children[0];
+        if (child.isMesh) {
+          child.geometry.dispose();
+          //child.material.dispose();
+        }
+        scene.remove(child);
+      }
+      // 重置相关的变量
+      skinnedMesh = undefined;
+      IKsolvers = undefined;
+      // 重置其他可能的相关对象
+    }
+
+    document.getElementById('upload-form').addEventListener('submit', function (e) {
+      e.preventDefault();
+      const fileInput = document.getElementById('file-input');
+      const file = fileInput.files[0];
+
+      if (file) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        // 发送文件到服务器
+        fetch('/upload', {
+          method: 'POST',
+          body: formData
+        })
+          .then(response => response.json())
+          .then(data => {
+            if (data.success) {
+              // 文件上传成功，根据服务器响应的数据加载模型
+              alert('文件上传成功');
+              resetSceneAndLoadNewModel(data.model_path);
+            } else {
+              alert('文件上传失败');
+            }
+          })
+          .catch(error => {
+            console.error('上传文件时出错:', error);
+            alert('上传文件时出错');
+          });
+      }
+    });
+
+
 
     function createTransformControl(boneName) {
       let control = new TransformControls(camera, renderer.domElement);
@@ -204,7 +253,7 @@
       renderer.render(scene, camera);
     };
 
-</script>
+  </script>
 
 
 
