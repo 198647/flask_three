@@ -24,9 +24,12 @@
 
 <body>
   <div id="idcanvas">
-    <button id="upload">上传模型</button>
+    <form action="/upload" id='upload-form' method="POST" enctype="multipart/form-data">
+      <input type="file" id='file-input' name="file">
+      <input type="submit" value="Upload File">
+    </form>
   </div>
-<script type="importmap">
+  <script type="importmap">
     {
         "imports": {
             "three": "/static/build/three.module.js"
@@ -34,7 +37,7 @@
     }
 </script>
 
-<script type="module">
+  <script type="module">
     import * as THREE from 'three';
     import { OrbitControls } from '/static/examples/jsm/controls/OrbitControls.js';
     import { FBXLoader } from '/static/examples/jsm/loaders/FBXLoader.js';
@@ -42,13 +45,8 @@
     import { CCDIKSolver, CCDIKHelper } from '/static/examples/jsm/animation/CCDIKSolver.js';
 
     // declare variables
-    let scene, renderer, camera, controls, skeletonHelper;
+    let scene, renderer, camera, controls, skeletonHelper, axesHelper, skinnedMesh, IKSolver, IKsolvers;
     let shouldUpdateIK = false; // 初始值为false
-    let skinnedMesh;
-    let IKsolvers; // 将这个变量移动到顶层作用域
-
-    let axesHelper;
-    let IKSolver;
     let transformControls, transformControls2, transformControls3, transformControls4;
     const rootbones = {};//Bone array
     // 定义四肢的IK链数据结构
@@ -78,40 +76,65 @@
     init();
     loadModel();
     render();
-    function init() {
-      scene = new THREE.Scene();
-      renderer = new THREE.WebGLRenderer({ antialias: true, });
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.setClearAlpha(0.0);
-      document.getElementById('idcanvas').appendChild(renderer.domElement);
 
+    function init() {
+      // 创建渲染器
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setClearColor(0x000000, 0); // 设定清除颜色与透明度
+      document.getElementById('idcanvas').appendChild(renderer.domElement);
+    
+      // 创建相机
       camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
       camera.position.set(100, 50, 100);
-      camera.lookAt(0, 0, 0);
-
+    
+      // 创建控制器
       controls = new OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.dampingFactor = 0.05;
-
+    
+      // 初始化场景
+      initBasicSceneElements();
+    }
+    
+    function initBasicSceneElements() {
+      // 创建新场景
+      scene = new THREE.Scene();
+    
+      // 添加辅助坐标系
       axesHelper = new THREE.AxesHelper(50);
       scene.add(axesHelper);
-
+    
+      // 添加环境光
       const ambient = new THREE.AmbientLight(0xffffff, 2);
       scene.add(ambient);
-
-      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5); // 添加一个白色平行光源
-      directionalLight.position.set(10, 10, 10); // 设置平行光源的位置
-      scene.add(directionalLight); // 将平行光源添加到场景中
+    
+      // 添加方向光
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+      directionalLight.position.set(10, 10, 10);
+      scene.add(directionalLight);
+    
+      // 设置相机的视点
+      camera.lookAt(scene.position);
     }
-
-    function loadModel() {
-
+    function loadModel(modelPath = '/static/resources/models/pg_ik_Modify_parent.fbx') {
       const loader = new FBXLoader();
-      loader.load('/static/resources/models/pg_ik.fbx', function (pg) {
+      loader.load(modelPath, function (pg) {
         pg.rotation.set(0, 0.7, 0);
         pg.position.set(0, -100, 0);
         scene.add(pg);
+        console.log(scene);
         pg.traverse(function (child) {
+          if (child.isMesh) {
+            // 检查子对象是否有材质和贴图
+            const material = child.material;
+            if (material && material.map) {
+              console.log(`贴图已加载: ${material.map.name}`);
+            } else {
+              console.log('此子对象没有贴图。');
+            }
+          }
+    
           if (child.isSkinnedMesh) {
             skinnedMesh = child; // 确保这一行成功找到了网格
             // 找到skinnedMesh后，再将pg添加到场景中
@@ -129,12 +152,58 @@
             transformControls3 = createTransformControl('右腿控制_R');
             transformControls4 = createTransformControl('左腿控制_L');
           }
-        });
-
-
-
+        }
+        );
       });
+    }
 
+    document.getElementById('upload-form').addEventListener('submit', function (e) {
+      e.preventDefault();
+      const fileInput = document.getElementById('file-input');
+      const file = fileInput.files[0];
+
+      if (file) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        // 发送文件到服务器
+        fetch('/upload', {
+          method: 'POST',
+          body: formData
+        })
+          .then(response => response.json())
+          .then(data => {
+            if (data.success) {
+              // 文件上传成功，根据服务器响应的数据加载模型
+              alert('文件上传成功');
+              //  clearScene(data.model_path);
+              clearScene(data.model_path)
+
+            } else {
+              alert('文件上传失败');
+            }
+          })
+          .catch(error => {
+            console.error('上传文件时出错:', error);
+            alert('上传文件时出错');
+          });
+      }
+    });
+
+    function clearScene(modelPath) {
+      while (scene.children.length > 0) {
+        let child = scene.children[0];
+        if (child.isMesh) {
+          child.geometry.dispose();
+        }
+        scene.remove(child);
+      }
+      // 重置相关的变量
+      skinnedMesh = undefined;
+      IKsolvers = undefined;
+      // ...其余代码
+      initBasicSceneElements()
+      loadModel(modelPath)
     }
 
     function createTransformControl(boneName) {
@@ -158,21 +227,42 @@
     }
 
     function setupIKSolvers(skinnedMesh, limbIKData) {
-      // 存储每个肢体的IK解算器
       const IKsolvers = {};
 
-      // 遍历limbIKData中的每个肢体
       for (const limbName in limbIKData) {
         const limb = limbIKData[limbName];
         const boneArray = skinnedMesh.skeleton.bones;
+
+        // 检查链的目标和效应器是否存在
+        const targetBone = boneArray.find(bone => bone.name === limb.target);
+        const effectorBone = boneArray.find(bone => bone.name === limb.effector);
+        if (!targetBone || !effectorBone) {
+          console.error(`IK setup error: Target or effector bone not found for ${limbName}.`);
+          continue; // 跳过当前肢体的IK设置
+        }
+
+        const links = limb.links.map(linkName => {
+          const linkBone = boneArray.find(bone => bone.name === linkName);
+          if (!linkBone) {
+            console.error(`IK setup error: Link bone not found: ${linkName}.`);
+            return null; // 返回null作为标记
+          }
+          return { index: boneArray.indexOf(linkBone) };
+        }).filter(link => link !== null); // 过滤掉任何未找到的链接
+
+        // 如果链接中有未找到的骨骼，则跳过IK的设置
+        if (links.length !== limb.links.length) {
+          console.error(`IK setup error: Not all link bones found for ${limbName}.`);
+          continue;
+        }
+
         // 创建IK链的数据结构
         const ik = {
-          target: boneArray.findIndex(bone => bone.name === limb.target),
-          effector: boneArray.findIndex(bone => bone.name === limb.effector),
-          links: limb.links.map(linkName => ({
-            index: boneArray.findIndex(bone => bone.name === linkName)
-          }))
+          target: boneArray.indexOf(targetBone),
+          effector: boneArray.indexOf(effectorBone),
+          links: links
         };
+
         // 使用CCDIKSolver初始化IK解算器
         IKsolvers[limbName] = new CCDIKSolver(skinnedMesh, [ik]);
         const ccdikhelper = new CCDIKHelper(skinnedMesh, [ik], 0.01);
@@ -185,20 +275,13 @@
     function render() {
       requestAnimationFrame(render);
       // 更新IK
-      if (shouldUpdateIK) {
-        updateIK();
-      }
-      renderer.render(scene, camera);
-    }
-    // 更新IK的函数
-    function updateIK() {
-      if (IKsolvers) {
+      if (shouldUpdateIK && IKsolvers) {
         for (const solver of Object.values(IKsolvers)) {
           solver.update();
         }
       }
+      renderer.render(scene, camera);
     }
-
 
     window.onresize = function () {
       const width = window.innerWidth;
@@ -209,7 +292,7 @@
       renderer.render(scene, camera);
     };
 
-</script>
+  </script>
 
 
 
