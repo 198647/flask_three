@@ -28,6 +28,10 @@
       <input type="file" id='file-input' name="file">
       <input type="submit" value="Upload File">
     </form>
+    <!-- 在页面的适当位置添加按钮 -->
+    <button id="download-btn">Download Model</button>
+    <button id="export-btn">Export as OBJ</button>
+
   </div>
   <script type="importmap">
     {
@@ -43,13 +47,16 @@
     import { FBXLoader } from '/static/examples/jsm/loaders/FBXLoader.js';
     import { TransformControls } from '/static/examples/jsm/controls/TransformControls.js';
     import { CCDIKSolver, CCDIKHelper } from '/static/examples/jsm/animation/CCDIKSolver.js';
+    // 引入GLTFExporter
+    import { OBJExporter } from '/static/examples/jsm/exporters/OBJExporter.js';
 
     // declare variables
     let scene, renderer, camera, controls, skeletonHelper, axesHelper, skinnedMesh, IKSolver, IKsolvers;
     let ambientLight, directionalLight;
-
     let shouldUpdateIK = false; // 初始值为false
     let transformControls, transformControls2, transformControls3, transformControls4;
+    let upload_file_name = 'pg_ik_Modify_parent.fbx'; // 默认路径
+    let textureFileName = '_texture_Pbr_Diffuse'
     const rootbones = {};//Bone array
     // 定义四肢的IK链数据结构
     const limbIKData = {
@@ -111,7 +118,29 @@
       controls.dampingFactor = 0.05;
     }
 
+    function render() {
+      requestAnimationFrame(render);
+      // 更新IK
+      if (shouldUpdateIK && IKsolvers) {
+        for (const solver of Object.values(IKsolvers)) {
+          solver.update();
+        }
+      }
+      renderer.render(scene, camera);
+    }
+
+    window.onresize = function () {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      renderer.setSize(width, height);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      renderer.render(scene, camera);
+    };
+
+
     function loadModel(modelPath = '/static/resources/models/pg_ik_Modify_parent.fbx') {
+      console.log(upload_file_name)
       const loader = new FBXLoader();
       loader.load(modelPath, function (pg) {
         pg.rotation.set(0, 0.7, 0);
@@ -123,7 +152,8 @@
             // 检查子对象是否有材质和贴图
             const material = child.material;
             if (material && material.map) {
-              console.log(`贴图已加载: ${material.map.name}`);
+              console.log(material.map.name);
+              textureFileName = material.map.name
             } else {
               console.log('此子对象没有贴图。');
             }
@@ -149,55 +179,6 @@
         }
         );
       });
-    }
-
-    document.getElementById('upload-form').addEventListener('submit', function (e) {
-      e.preventDefault();
-      const fileInput = document.getElementById('file-input');
-      const file = fileInput.files[0];
-
-      if (file) {
-        const formData = new FormData();
-        formData.append('file', file);
-
-        // 发送文件到服务器
-        fetch('/upload', {
-          method: 'POST',
-          body: formData
-        })
-          .then(response => response.json())
-          .then(data => {
-            if (data.success) {
-              // 文件上传成功，根据服务器响应的数据加载模型
-              alert('文件上传成功');
-              //  clearScene(data.model_path);
-              clearScene(data.model_path)
-
-            } else {
-              alert('文件上传失败');
-            }
-          })
-          .catch(error => {
-            console.error('上传文件时出错:', error);
-            alert('上传文件时出错');
-          });
-      }
-    });
-
-    function clearScene(modelPath) {
-      while (scene.children.length > 0) {
-        let child = scene.children[0];
-        if (child.isMesh) {
-          child.geometry.dispose();
-        }
-        scene.remove(child);
-      }
-      // 重置相关的变量
-      skinnedMesh = undefined;
-      IKsolvers = undefined;
-      // ...其余代码
-      initBasicSceneElements()
-      loadModel(modelPath)
     }
 
     function createTransformControl(boneName) {
@@ -266,25 +247,163 @@
       return IKsolvers;
     }
 
-    function render() {
-      requestAnimationFrame(render);
-      // 更新IK
-      if (shouldUpdateIK && IKsolvers) {
-        for (const solver of Object.values(IKsolvers)) {
-          solver.update();
+    //上传功能
+    function clearScene(modelPath) {
+      while (scene.children.length > 0) {
+        let child = scene.children[0];
+        if (child.isMesh) {
+          child.geometry.dispose();
         }
+        scene.remove(child);
       }
-      renderer.render(scene, camera);
+      // 重置相关的变量
+      skinnedMesh = undefined;
+      IKsolvers = undefined;
+      // ...其余代码
+      initBasicSceneElements()
+      loadModel(modelPath)
     }
 
-    window.onresize = function () {
-      const width = window.innerWidth;
-      const height = window.innerHeight;
-      renderer.setSize(width, height);
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
-      renderer.render(scene, camera);
-    };
+    document.getElementById('upload-form').addEventListener('submit', function (e) {
+      e.preventDefault();
+      const fileInput = document.getElementById('file-input');
+      const file = fileInput.files[0];
+
+      if (file) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        // 发送文件到服务器
+        fetch('/upload', {
+          method: 'POST',
+          body: formData
+        })
+          .then(response => response.json())
+          .then(data => {
+            if (data.success) {
+              // 文件上传成功，根据服务器响应的数据加载模型
+              alert('文件上传成功');
+              //  clearScene(data.model_path);
+              clearScene(data.model_path)
+              upload_file_name = data.name; // 保存上传后的模型路径
+            } else {
+              alert('文件上传失败');
+            }
+          })
+          .catch(error => {
+            console.error('上传文件时出错:', error);
+            alert('上传文件时出错');
+          });
+      }
+    });
+
+    //从服务器下载
+    document.getElementById('download-btn').addEventListener('click', function () {
+      window.location.href = `/download/${encodeURIComponent(upload_file_name)}`;
+    });
+
+
+    // 遍历场景中的所有SkinnedMesh，并将骨骼变换应用到网格上
+    function applySkeletonToGeometry(skinnedMesh) {
+      skinnedMesh.updateMatrixWorld(true);
+      const skeleton = skinnedMesh.skeleton;
+      const boneMatrices = skeleton.boneMatrices;
+      const geometry = skinnedMesh.geometry;
+
+      // 创建一个新的几何体，该几何体将包含应用了骨骼变换的顶点位置
+      const bakedGeometry = geometry.clone();
+      bakedGeometry.applyMatrix4(skinnedMesh.bindMatrix);
+
+      const positionAttribute = bakedGeometry.attributes.position;
+      const skinIndices = geometry.attributes.skinIndex;
+      const skinWeights = geometry.attributes.skinWeight;
+
+      // 遍历几何体的每个顶点，应用骨骼的变换
+      for (let i = 0; i < positionAttribute.count; i++) {
+        const vertex = new THREE.Vector3();
+        vertex.fromBufferAttribute(positionAttribute, i);
+
+        const skinIndex = new THREE.Vector4();
+        skinIndex.fromBufferAttribute(skinIndices, i);
+
+        const skinWeight = new THREE.Vector4();
+        skinWeight.fromBufferAttribute(skinWeights, i);
+
+        const skinnedVertex = new THREE.Vector3();
+
+        // 对于每个影响该顶点的骨骼，应用其变换矩阵
+        for (let j = 0; j < 4; j++) {
+          const boneIndex = skinIndex.getComponent(j);
+          if (skinWeight.getComponent(j) !== 0) {
+            const boneMatrix = new THREE.Matrix4().fromArray(boneMatrices, boneIndex * 16);
+            const weightedVertex = vertex.clone().applyMatrix4(boneMatrix);
+            weightedVertex.multiplyScalar(skinWeight.getComponent(j));
+            skinnedVertex.add(weightedVertex);
+          }
+        }
+
+        // 更新几何体的顶点位置
+        positionAttribute.setXYZ(i, skinnedVertex.x, skinnedVertex.y, skinnedVertex.z);
+      }
+
+      bakedGeometry.attributes.position.needsUpdate = true;
+      return bakedGeometry;
+    }
+
+    function exportBakedModelAsOBJ(bakedGeometry, skinnedMesh) {
+      // 创建包含烘焙后几何体和原有材质的新Mesh对象
+      const bakedMesh = new THREE.Mesh(bakedGeometry, skinnedMesh.material);
+    
+      // 导出OBJ
+      const objExporter = new OBJExporter();
+      const objResult = objExporter.parse(bakedMesh);
+      saveFile(objResult, upload_file_name.replace('.fbx', '.obj'));
+    
+      // 创建并保存MTL文件
+      const mtlContent = generateMTLContent(skinnedMesh.material);
+      saveFile(mtlContent, upload_file_name.replace('.fbx', '.mtl'));
+    }
+    
+
+    function generateMTLContent(material) {
+      // 检查是否已经设置了贴图文件名
+      if (!textureFileName) {
+        console.error('贴图文件名未定义。');
+        return '';
+      }
+    
+      let mtlContent = `newmtl ${material.name}\n`; // 使用通用名称 "material"
+      mtlContent += `Ka 1.000 1.000 1.000\n`;
+      mtlContent += `Kd 1.000 1.000 1.000\n`;
+      mtlContent += `Ks 0.000 0.000 0.000\n`;
+      mtlContent += `d 1\n`;
+      mtlContent += `illum 2\n`;
+      mtlContent += `map_Kd ${textureFileName}.jpg\n`; // 使用保存的贴图文件名
+    
+      return mtlContent;
+    }
+    
+    // 文件保存辅助函数
+    function saveFile(content, filename) {
+      const blob = new Blob([content], { type: 'text/plain' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+    
+    document.getElementById('export-btn').addEventListener('click', function () {
+      if (!skinnedMesh) {
+        console.error('No skinned mesh with a skeleton found.');
+        return;
+      }
+      const bakedGeometry = applySkeletonToGeometry(skinnedMesh);
+      exportBakedModelAsOBJ(bakedGeometry, skinnedMesh);
+    });
+    
+
 
   </script>
 
