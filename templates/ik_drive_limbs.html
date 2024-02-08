@@ -59,29 +59,8 @@
     let textureFileName = '_texture_Pbr_Diffuse'
     const rootbones = {};//Bone array
     // 定义四肢的IK链数据结构
-    const limbIKData = {
-      leftArm: {
-        target: '左手控制_L',
-        effector: 'mixamorigLeftHand',
-        links: ['mixamorigLeftForeArm', 'mixamorigLeftArm']
-      },
-      rightArm: {
-        target: '右手控制_R',
-        effector: 'mixamorigRightHand',
-        links: ['mixamorigRightForeArm', 'mixamorigRightArm']
-      },
-      leftLeg: {
-        target: '左腿控制_L',
-        effector: 'mixamorigLeftFoot',
-        links: ['mixamorigLeftLeg', 'mixamorigLeftUpLeg']
-      },
-      rightLeg: {
-        target: '右腿控制_R',
-        effector: 'mixamorigRightFoot',
-        links: ['mixamorigRightLeg', 'mixamorigRightUpLeg']
-      }
-      // 更多的肢体可以按照此格式继续添加
-    };
+
+
     init();
     loadModel();
     render();
@@ -116,6 +95,7 @@
       controls = new OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.dampingFactor = 0.05;
+      
     }
 
     function render() {
@@ -137,6 +117,7 @@
       camera.updateProjectionMatrix();
       renderer.render(scene, camera);
     };
+
 
 
     function loadModel(modelPath = '/static/resources/models/pg_ik_Modify_parent.fbx') {
@@ -179,6 +160,8 @@
         }
         );
       });
+
+
     }
 
     function createTransformControl(boneName) {
@@ -201,6 +184,73 @@
       return control;
     }
 
+    const limbIKData = {
+      leftArm: {
+        target: '左手控制_L',
+        effector: 'mixamorigLeftHand',
+        links: [
+          {
+            name: 'mixamorigLeftForeArm',
+            rotationMin: new THREE.Vector3(-Math.PI / 20, -Math.PI / 8, -1), // 限制小臂向下的旋转范围，防止反折
+            rotationMax: new THREE.Vector3(Math.PI / 1.8, Math.PI / 2, 1) // 保持其他轴向的旋转范围不变
+          },
+          {
+            name: 'mixamorigLeftArm',
+            rotationMin: new THREE.Vector3(-Math.PI / 2, -Math.PI / 8, -1), // 减小向上和内侧旋转的范围
+            rotationMax: new THREE.Vector3(Math.PI / 2, Math.PI / 2, 1) // 保持向下和向外的旋转范围不变
+          }
+        ]
+      },
+      rightArm: {
+        target: '右手控制_R',
+        effector: 'mixamorigRightHand',
+        links: [
+          {
+            name: 'mixamorigRightForeArm',
+            rotationMin: new THREE.Vector3(-Math.PI / 20, -Math.PI / 8, -1), // 限制小臂向下的旋转范围，防止反折
+            rotationMax: new THREE.Vector3(Math.PI / 1.8, Math.PI / 2, 1) // 保持其他轴向的旋转范围不变
+          },
+          {
+            name: 'mixamorigRightArm',
+            rotationMin: new THREE.Vector3(-Math.PI / 2, -Math.PI / 8, -1), // 减小向上和内侧旋转的范围
+            rotationMax: new THREE.Vector3(Math.PI / 2, Math.PI / 2, 1) // 保持向下和向外的旋转范围不变
+          }
+        ]
+      },
+      leftLeg: {
+        target: '左腿控制_L',
+        effector: 'mixamorigLeftFoot',
+        links: [
+          {
+            name: 'mixamorigLeftLeg',
+          },
+          {
+            name: 'mixamorigLeftUpLeg',
+            rotationMin: new THREE.Vector3(-Math.PI / 1.2, -0.25, -0.85),
+            rotationMax: new THREE.Vector3(Math.PI / 1.5, 0.5, 0.85)
+          }
+        ]
+      },
+
+
+      rightLeg: {
+        target: '右腿控制_R',
+        effector: 'mixamorigRightFoot',
+        links: [
+          {
+            name: 'mixamorigRightLeg',
+
+          },
+          {
+            name: 'mixamorigRightUpLeg',
+
+          }
+        ]
+      }
+
+      // 更多的肢体可以按照此格式继续添加
+    };
+
     function setupIKSolvers(skinnedMesh, limbIKData) {
       const IKsolvers = {};
 
@@ -208,37 +258,44 @@
         const limb = limbIKData[limbName];
         const boneArray = skinnedMesh.skeleton.bones;
 
-        // 检查链的目标和效应器是否存在
         const targetBone = boneArray.find(bone => bone.name === limb.target);
         const effectorBone = boneArray.find(bone => bone.name === limb.effector);
         if (!targetBone || !effectorBone) {
           console.error(`IK setup error: Target or effector bone not found for ${limbName}.`);
-          continue; // 跳过当前肢体的IK设置
+          continue;
         }
 
-        const links = limb.links.map(linkName => {
-          const linkBone = boneArray.find(bone => bone.name === linkName);
+        const links = limb.links.map(link => {
+          const linkBone = boneArray.find(bone => bone.name === link.name);
           if (!linkBone) {
-            console.error(`IK setup error: Link bone not found: ${linkName}.`);
-            return null; // 返回null作为标记
+            console.error(`IK setup error: Link bone not found: ${link.name}.`);
+            return null;
           }
-          return { index: boneArray.indexOf(linkBone) };
-        }).filter(link => link !== null); // 过滤掉任何未找到的链接
+          const linkData = {
+            index: boneArray.indexOf(linkBone)
+          };
+          // 仅当旋转最小和最大约束存在时才添加到链环节
+          if (link.rotationMin) {
+            linkData.rotationMin = link.rotationMin;
+          }
+          if (link.rotationMax) {
+            linkData.rotationMax = link.rotationMax;
+          }
+          return linkData;
+        }).filter(link => link !== null);
 
-        // 如果链接中有未找到的骨骼，则跳过IK的设置
         if (links.length !== limb.links.length) {
           console.error(`IK setup error: Not all link bones found for ${limbName}.`);
           continue;
         }
 
-        // 创建IK链的数据结构
         const ik = {
           target: boneArray.indexOf(targetBone),
           effector: boneArray.indexOf(effectorBone),
-          links: links
+          links: links,
         };
 
-        // 使用CCDIKSolver初始化IK解算器
+        // 在这里，你需要一个支持旋转约束的IK解算器。这可能需要对CCDIKSolver进行扩展或使用其他支持约束的解算器
         IKsolvers[limbName] = new CCDIKSolver(skinnedMesh, [ik]);
         const ccdikhelper = new CCDIKHelper(skinnedMesh, [ik], 0.01);
         scene.add(ccdikhelper);
@@ -246,6 +303,8 @@
 
       return IKsolvers;
     }
+
+
 
     //上传功能
     function clearScene(modelPath) {
@@ -296,7 +355,6 @@
           });
       }
     });
-
     //从服务器下载
     document.getElementById('download-btn').addEventListener('click', function () {
       window.location.href = `/download/${encodeURIComponent(upload_file_name)}`;
@@ -353,17 +411,16 @@
     function exportBakedModelAsOBJ(bakedGeometry, skinnedMesh) {
       // 创建包含烘焙后几何体和原有材质的新Mesh对象
       const bakedMesh = new THREE.Mesh(bakedGeometry, skinnedMesh.material);
-    
+
       // 导出OBJ
       const objExporter = new OBJExporter();
       const objResult = objExporter.parse(bakedMesh);
       saveFile(objResult, upload_file_name.replace('.fbx', '.obj'));
-    
+
       // 创建并保存MTL文件
       const mtlContent = generateMTLContent(skinnedMesh.material);
       saveFile(mtlContent, upload_file_name.replace('.fbx', '.mtl'));
     }
-    
 
     function generateMTLContent(material) {
       // 检查是否已经设置了贴图文件名
@@ -371,7 +428,7 @@
         console.error('贴图文件名未定义。');
         return '';
       }
-    
+
       let mtlContent = `newmtl ${material.name}\n`; // 使用通用名称 "material"
       mtlContent += `Ka 1.000 1.000 1.000\n`;
       mtlContent += `Kd 1.000 1.000 1.000\n`;
@@ -379,10 +436,9 @@
       mtlContent += `d 1\n`;
       mtlContent += `illum 2\n`;
       mtlContent += `map_Kd ${textureFileName}.jpg\n`; // 使用保存的贴图文件名
-    
+
       return mtlContent;
     }
-    
     // 文件保存辅助函数
     function saveFile(content, filename) {
       const blob = new Blob([content], { type: 'text/plain' });
@@ -393,7 +449,7 @@
       link.click();
       document.body.removeChild(link);
     }
-    
+
     document.getElementById('export-btn').addEventListener('click', function () {
       if (!skinnedMesh) {
         console.error('No skinned mesh with a skeleton found.');
@@ -402,7 +458,7 @@
       const bakedGeometry = applySkeletonToGeometry(skinnedMesh);
       exportBakedModelAsOBJ(bakedGeometry, skinnedMesh);
     });
-    
+
 
 
   </script>
