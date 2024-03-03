@@ -51,7 +51,7 @@
     import { OBJExporter } from '/static/examples/jsm/exporters/OBJExporter.js';
 
     // declare variables
-    let scene, renderer, camera, controls, skeletonHelper, axesHelper,axesHelper2, skinnedMesh, IKSolver, IKsolvers;
+    let scene, renderer, camera, controls, skeletonHelper, axesHelper, axesHelper2, skinnedMesh, IKSolver, IKsolvers;
     let ambientLight, directionalLight;
     let shouldUpdateIK = false; // 初始值为false
     let transformControls, transformControls2, transformControls3, transformControls4;
@@ -124,6 +124,7 @@
       console.log(upload_file_name)
       const loader = new FBXLoader();
       loader.load(modelPath, function (pg) {
+        // 将模型的初始位置设置为 (x, y, z)
         pg.rotation.set(0, 0.7, 0);
         pg.position.set(0, -100, 0);
         scene.add(pg);
@@ -139,52 +140,68 @@
               console.log('此子对象没有贴图。');
             }
           }
-
           if (child.isSkinnedMesh) {
             skinnedMesh = child; // 确保这一行成功找到了网格
-            // 找到skinnedMesh后，再将pg添加到场景中
-            scene.add(pg);
-            IKsolvers = setupIKSolvers(skinnedMesh, limbIKData); // 现在可以初始化IKsolvers
-// 创建并添加表示本地轴的辅助对象
-const axesHelper2 = new THREE.AxesHelper(50); // 长度为5的轴辅助对象
-pg.add(axesHelper2); // 将辅助对象添加到立方体上
-            // 使用新的创建控制器的方法
-            rootbones.右手控制_R = pg.getObjectByName('右手控制_R');
-            rootbones.左手控制_L = pg.getObjectByName('左手控制_L');
-            rootbones.右腿控制_R = pg.getObjectByName('右腿控制_R');
-            rootbones.左腿控制_L = pg.getObjectByName('左腿控制_L');
-
-            transformControls = createTransformControl('右手控制_R');
-            transformControls2 = createTransformControl('左手控制_L');
-            transformControls3 = createTransformControl('右腿控制_R');
-            transformControls4 = createTransformControl('左腿控制_L');
           }
-        }
-        );
+        });
+        console.log(skinnedMesh)
+        // 找到skinnedMesh后，再将pg添加到场景中
+        scene.add(pg);
+        IKsolvers = setupIKSolvers(skinnedMesh, limbIKData); // 现在可以初始化IKsolvers
+        // 创建并添加表示本地轴的辅助对象
+        const boneObject = pg.getObjectByName('mixamorigLeftUpLeg');
+        const axesHelper2 = new THREE.AxesHelper(50); // 长度为5的轴辅助对象
+        boneObject.add(axesHelper2); // 将辅助对象添加到立方体上
+        // 使用新的创建控制器的方法
+        createTransformControlsForLimbIKData(pg, limbIKData);
       });
-
 
     }
 
-    function createTransformControl(boneName) {
-      let control = new TransformControls(camera, renderer.domElement);
+// 假设您有一个数组来跟踪所有创建的TransformControls实例
+const allTransformControls = [];
+
+function createTransformControlsForLimbIKData(pg, limbIKData) {
+  Object.keys(limbIKData).forEach((limbKey) => {
+    const limb = limbIKData[limbKey];
+    const targetBone = pg.getObjectByName(limb.target);
+
+    if (targetBone) {
+      const control = new TransformControls(camera, renderer.domElement);
       control.size = 0.75;
-      control.attach(rootbones[boneName]);
+      control.attach(targetBone);
       scene.add(control);
       control.setMode('translate');
 
-      // 添加鼠标事件监听器，用于开启和关闭IK更新
-      control.addEventListener('mouseDown', () => {
-        controls.enabled = false;
+      control.addEventListener('mouseDown', (event) => {
+        // 禁用其他所有控制器
+        allTransformControls.forEach((ctrl) => {
+          if (ctrl !== control) {
+            ctrl.enabled = false;
+          }
+        });
+        // 启用当前控制器
+        control.enabled = true;
+        controls.enabled = false; // 禁用相机控制
         shouldUpdateIK = true;
       });
+
       control.addEventListener('mouseUp', () => {
-        controls.enabled = true;
+        // 重新启用所有控制器
+        allTransformControls.forEach((ctrl) => {
+          ctrl.enabled = true;
+        });
+        controls.enabled = true; // 在释放鼠标按钮时启用相机控制
         shouldUpdateIK = false;
       });
 
-      return control;
+      // 将当前控制器添加到列表中
+      allTransformControls.push(control);
+      limb.control = control; // 存储控制器引用
     }
+  });
+}
+
 
     const limbIKData = {
       leftArm: {
@@ -225,21 +242,21 @@ pg.add(axesHelper2); // 将辅助对象添加到立方体上
         links: [
           {
             name: 'mixamorigLeftLeg',
-            rotationMin: new THREE.Vector3(-Math.PI / 1.2, 0, 0), // 不允许向前弯曲，也不允许围绕Y轴和Z轴的旋转
+            rotationMin: new THREE.Vector3(-2.6, 0, 0), // 不允许向前弯曲，也不允许围绕Y轴和Z轴的旋转
             rotationMax: new THREE.Vector3(0, 0, 0) // 允许向后弯曲90度，不允许围绕Y轴和Z轴的旋转
 
           },
           {
             name: 'mixamorigLeftUpLeg',
-            rotationMin: new THREE.Vector3(-Math.PI ,-Math.PI/2,-Math.PI), // 不允许向前弯曲，也不允许围绕Y轴和Z轴的旋转
-            rotationMax: new THREE.Vector3(Math.PI,Math.PI/2, Math.PI) // 允许向后弯曲90度，不允许围绕Y轴和Z轴的旋转
+            rotationMin: new THREE.Vector3(-Math.PI / 1.5, -Math.PI / 2, -Math.PI), // 不允许向前弯曲，也不允许围绕Y轴和Z轴的旋转
+            rotationMax: new THREE.Vector3(Math.PI / 1.7, Math.PI / 2, Math.PI) // 允许向后弯曲90度，不允许围绕Y轴和Z轴的旋转
           }
         ]
       },
-     // rotationMin: new THREE.Vector3(-Math.PI / 1.5, -Math.PI, -Math.PI), // 不允许向前弯曲，也不允许围绕Y轴和Z轴的旋转
-     // rotationMax: new THREE.Vector3(Math.PI / 1.7, Math.PI, -Math.PI / 2) // 允许向后弯曲90度，不允许围绕Y轴和Z轴的旋转
-    
-
+      //rotationMin: new THREE.Vector3(-3.1 , -1.5, -3.1), // 不允许向前弯曲，也不允许围绕Y轴和Z轴的旋转
+      //rotationMax: new THREE.Vector3(3.1,1.5, 3.1) // 允许向后弯曲90度，不允许围绕Y轴和Z轴的旋转
+      // rotationMin: new THREE.Vector3(-Math.PI / 1.5, -Math.PI, -Math.PI), // 不允许向前弯曲，也不允许围绕Y轴和Z轴的旋转
+      // rotationMax: new THREE.Vector3(Math.PI / 1.7, Math.PI, -Math.PI / 2) // 允许向后弯曲90度，不允许围绕Y轴和Z轴的旋转
       rightLeg: {
         target: '右腿控制_R',
         effector: 'mixamorigRightFoot',
@@ -251,8 +268,8 @@ pg.add(axesHelper2); // 将辅助对象添加到立方体上
           },
           {
             name: 'mixamorigRightUpLeg',
-            rotationMin: new THREE.Vector3(-Math.PI ,-Math.PI/2,-Math.PI), // 不允许向前弯曲，也不允许围绕Y轴和Z轴的旋转
-            rotationMax: new THREE.Vector3(Math.PI,Math.PI/2, Math.PI) // 允许向后弯曲90度，不允许围绕Y轴和Z轴的旋转
+            rotationMin: new THREE.Vector3(-Math.PI / 1.7, -Math.PI / 2, -Math.PI), // 不允许向前弯曲，也不允许围绕Y轴和Z轴的旋转
+            rotationMax: new THREE.Vector3(Math.PI / 1.7, Math.PI / 2, Math.PI) // 允许向后弯曲90度，不允许围绕Y轴和Z轴的旋转
           }
         ]
       }
@@ -316,6 +333,8 @@ pg.add(axesHelper2); // 将辅助对象添加到立方体上
 
 
 
+
+
     //上传功能
     function clearScene(modelPath) {
       while (scene.children.length > 0) {
@@ -369,7 +388,6 @@ pg.add(axesHelper2); // 将辅助对象添加到立方体上
     document.getElementById('download-btn').addEventListener('click', function () {
       window.location.href = `/download/${encodeURIComponent(upload_file_name)}`;
     });
-
 
     // 遍历场景中的所有SkinnedMesh，并将骨骼变换应用到网格上
     function applySkeletonToGeometry(skinnedMesh) {

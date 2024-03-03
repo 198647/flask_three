@@ -28,6 +28,10 @@
       <input type="file" id='file-input' name="file">
       <input type="submit" value="Upload File">
     </form>
+    <!-- 在页面的适当位置添加按钮 -->
+    <button id="download-btn">Download Model</button>
+    <button id="export-btn">Export as OBJ</button>
+
   </div>
   <script type="importmap">
     {
@@ -43,83 +47,84 @@
     import { FBXLoader } from '/static/examples/jsm/loaders/FBXLoader.js';
     import { TransformControls } from '/static/examples/jsm/controls/TransformControls.js';
     import { CCDIKSolver, CCDIKHelper } from '/static/examples/jsm/animation/CCDIKSolver.js';
+    // 引入GLTFExporter
+    import { OBJExporter } from '/static/examples/jsm/exporters/OBJExporter.js';
 
     // declare variables
-    let scene, renderer, camera, controls, skeletonHelper, axesHelper, skinnedMesh, IKSolver, IKsolvers;
+    let scene, renderer, camera, controls, skeletonHelper, axesHelper, axesHelper2, skinnedMesh, IKSolver, IKsolvers;
+    let ambientLight, directionalLight;
     let shouldUpdateIK = false; // 初始值为false
     let transformControls, transformControls2, transformControls3, transformControls4;
+    let upload_file_name = 'pg_ik_Modify_parent.fbx'; // 默认路径
+    let textureFileName = '_texture_Pbr_Diffuse'
     const rootbones = {};//Bone array
     // 定义四肢的IK链数据结构
-    const limbIKData = {
-      leftArm: {
-        target: '左手控制_L',
-        effector: 'mixamorigLeftHand',
-        links: ['mixamorigLeftForeArm', 'mixamorigLeftArm']
-      },
-      rightArm: {
-        target: '右手控制_R',
-        effector: 'mixamorigRightHand',
-        links: ['mixamorigRightForeArm', 'mixamorigRightArm']
-      },
-      leftLeg: {
-        target: '左腿控制_L',
-        effector: 'mixamorigLeftFoot',
-        links: ['mixamorigLeftLeg', 'mixamorigLeftUpLeg']
-      },
-      rightLeg: {
-        target: '右腿控制_R',
-        effector: 'mixamorigRightFoot',
-        links: ['mixamorigRightLeg', 'mixamorigRightUpLeg']
-      }
-      // 更多的肢体可以按照此格式继续添加
-    };
+
+
     init();
     loadModel();
     render();
 
     function init() {
-      // 创建渲染器
+      scene = new THREE.Scene();
+
       renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.setClearColor(0x000000, 0); // 设定清除颜色与透明度
       document.getElementById('idcanvas').appendChild(renderer.domElement);
-    
-      // 创建相机
-      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
-      camera.position.set(100, 50, 100);
-    
-      // 创建控制器
-      controls = new OrbitControls(camera, renderer.domElement);
-      controls.enableDamping = true;
-      controls.dampingFactor = 0.05;
-    
       // 初始化场景
       initBasicSceneElements();
     }
-    
+
     function initBasicSceneElements() {
-      // 创建新场景
-      scene = new THREE.Scene();
-    
-      // 添加辅助坐标系
+
       axesHelper = new THREE.AxesHelper(50);
       scene.add(axesHelper);
-    
-      // 添加环境光
-      const ambient = new THREE.AmbientLight(0xffffff, 2);
-      scene.add(ambient);
-    
-      // 添加方向光
-      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+
+      ambientLight = new THREE.AmbientLight(0xffffff, 2);
+      scene.add(ambientLight);
+
+      directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
       directionalLight.position.set(10, 10, 10);
       scene.add(directionalLight);
-    
-      // 设置相机的视点
+
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+      camera.position.set(100, 50, 100);
       camera.lookAt(scene.position);
+
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+
     }
+
+    function render() {
+      requestAnimationFrame(render);
+      // 更新IK
+      if (shouldUpdateIK && IKsolvers) {
+        for (const solver of Object.values(IKsolvers)) {
+          solver.update();
+        }
+      }
+      renderer.render(scene, camera);
+    }
+
+    window.onresize = function () {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      renderer.setSize(width, height);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      renderer.render(scene, camera);
+    };
+
+
+
     function loadModel(modelPath = '/static/resources/models/pg_ik_Modify_parent.fbx') {
+      console.log(upload_file_name)
       const loader = new FBXLoader();
       loader.load(modelPath, function (pg) {
+        // 将模型的初始位置设置为 (x, y, z)
         pg.rotation.set(0, 0.7, 0);
         pg.position.set(0, -100, 0);
         scene.add(pg);
@@ -129,18 +134,23 @@
             // 检查子对象是否有材质和贴图
             const material = child.material;
             if (material && material.map) {
-              console.log(`贴图已加载: ${material.map.name}`);
+              console.log(material.map.name);
+              textureFileName = material.map.name
             } else {
               console.log('此子对象没有贴图。');
             }
           }
-    
+
           if (child.isSkinnedMesh) {
             skinnedMesh = child; // 确保这一行成功找到了网格
             // 找到skinnedMesh后，再将pg添加到场景中
             scene.add(pg);
             IKsolvers = setupIKSolvers(skinnedMesh, limbIKData); // 现在可以初始化IKsolvers
-
+            // 创建并添加表示本地轴的辅助对象
+            // 你需要找到骨骼节点的对象
+            const boneObject = pg.getObjectByName('mixamorigLeftUpLeg');
+            const axesHelper2 = new THREE.AxesHelper(50); // 长度为5的轴辅助对象
+            boneObject.add(axesHelper2); // 将辅助对象添加到立方体上
             // 使用新的创建控制器的方法
             rootbones.右手控制_R = pg.getObjectByName('右手控制_R');
             rootbones.左手控制_L = pg.getObjectByName('左手控制_L');
@@ -155,6 +165,179 @@
         }
         );
       });
+      const degValue = 70; // 角度值
+      const radValue = THREE.MathUtils.degToRad(degValue); // 将角度值转换为弧度值
+      console.log(radValue); // 输出弧度值
+
+    }
+
+    const limbIKData = {
+      leftArm: {
+        target: '左手控制_L',
+        effector: 'mixamorigLeftHand',
+        links: [
+          {
+            name: 'mixamorigLeftForeArm',
+            rotationMin: new THREE.Vector3(-Math.PI / 20, -Math.PI / 8, -1), // 限制小臂向下的旋转范围，防止反折
+            rotationMax: new THREE.Vector3(Math.PI / 1.8, Math.PI / 2, 1) // 保持其他轴向的旋转范围不变
+          },
+          {
+            name: 'mixamorigLeftArm',
+            rotationMin: new THREE.Vector3(-Math.PI / 2, -Math.PI / 8, -1), // 减小向上和内侧旋转的范围
+            rotationMax: new THREE.Vector3(Math.PI / 2, Math.PI / 2, 1) // 保持向下和向外的旋转范围不变
+          }
+        ]
+      },
+      rightArm: {
+        target: '右手控制_R',
+        effector: 'mixamorigRightHand',
+        links: [
+          {
+            name: 'mixamorigRightForeArm',
+            rotationMin: new THREE.Vector3(-Math.PI / 20, -Math.PI / 8, -1), // 限制小臂向下的旋转范围，防止反折
+            rotationMax: new THREE.Vector3(Math.PI / 1.8, Math.PI / 2, 1) // 保持其他轴向的旋转范围不变
+          },
+          {
+            name: 'mixamorigRightArm',
+            rotationMin: new THREE.Vector3(-Math.PI / 2, -Math.PI / 8, -1), // 减小向上和内侧旋转的范围
+            rotationMax: new THREE.Vector3(Math.PI / 2, Math.PI / 2, 1) // 保持向下和向外的旋转范围不变
+          }
+        ]
+      },
+      leftLeg: {
+        target: '左腿控制_L',
+        effector: 'mixamorigLeftFoot',
+        links: [
+          {
+            name: 'mixamorigLeftLeg',
+            rotationMin: new THREE.Vector3(-2.6, 0, 0), // 不允许向前弯曲，也不允许围绕Y轴和Z轴的旋转
+            rotationMax: new THREE.Vector3(0, 0, 0) // 允许向后弯曲90度，不允许围绕Y轴和Z轴的旋转
+
+          },
+          {
+            name: 'mixamorigLeftUpLeg',
+            rotationMin: new THREE.Vector3(-Math.PI , -Math.PI/2, -Math.PI), // 不允许向前弯曲，也不允许围绕Y轴和Z轴的旋转
+            rotationMax: new THREE.Vector3(Math.PI, Math.PI/2, Math.PI) // 允许向后弯曲90度，不允许围绕Y轴和Z轴的旋转
+          }
+        ]
+      },
+
+      // rotationMin: new THREE.Vector3(-Math.PI / 1.5, -Math.PI, -Math.PI), // 不允许向前弯曲，也不允许围绕Y轴和Z轴的旋转
+      // rotationMax: new THREE.Vector3(Math.PI / 1.7, Math.PI, -Math.PI / 2) // 允许向后弯曲90度，不允许围绕Y轴和Z轴的旋转
+
+
+      rightLeg: {
+        target: '右腿控制_R',
+        effector: 'mixamorigRightFoot',
+        links: [
+          {
+            name: 'mixamorigRightLeg',
+            rotationMin: new THREE.Vector3(-Math.PI / 1.2, 0, 0), // 不允许向前弯曲，也不允许围绕Y轴和Z轴的旋转
+            rotationMax: new THREE.Vector3(0, 0, 0) // 允许向后弯曲90度，不允许围绕Y轴和Z轴的旋转
+          },
+          {
+            name: 'mixamorigRightUpLeg',
+            rotationMin: new THREE.Vector3(-Math.PI, -Math.PI / 2, -Math.PI), // 不允许向前弯曲，也不允许围绕Y轴和Z轴的旋转
+            rotationMax: new THREE.Vector3(Math.PI, Math.PI / 2, Math.PI) // 允许向后弯曲90度，不允许围绕Y轴和Z轴的旋转
+          }
+        ]
+      }
+      //rotationMin: new THREE.Vector3(-Math.PI / 2, -Math.PI / 20, Math.PI / 2), // 不允许向前弯曲，也不允许围绕Y轴和Z轴的旋转
+      //rotationMax: new THREE.Vector3(Math.PI / 2, Math.PI / 20, Math.PI * 1.5) // 允许向后弯曲90度，不允许围绕Y轴和Z轴的旋转
+      // 更多的肢体可以按照此格式继续添加
+    };
+
+    function setupIKSolvers(skinnedMesh, limbIKData) {
+      const IKsolvers = {};
+
+      for (const limbName in limbIKData) {
+        const limb = limbIKData[limbName];
+        const boneArray = skinnedMesh.skeleton.bones;
+
+        const targetBone = boneArray.find(bone => bone.name === limb.target);
+        const effectorBone = boneArray.find(bone => bone.name === limb.effector);
+        if (!targetBone || !effectorBone) {
+          console.error(`IK setup error: Target or effector bone not found for ${limbName}.`);
+          continue;
+        }
+
+        const links = limb.links.map(link => {
+          const linkBone = boneArray.find(bone => bone.name === link.name);
+          if (!linkBone) {
+            console.error(`IK setup error: Link bone not found: ${link.name}.`);
+            return null;
+          }
+          const linkData = {
+            index: boneArray.indexOf(linkBone)
+          };
+          // 仅当旋转最小和最大约束存在时才添加到链环节
+          if (link.rotationMin) {
+            linkData.rotationMin = link.rotationMin;
+          }
+          if (link.rotationMax) {
+            linkData.rotationMax = link.rotationMax;
+          }
+          return linkData;
+        }).filter(link => link !== null);
+
+        if (links.length !== limb.links.length) {
+          console.error(`IK setup error: Not all link bones found for ${limbName}.`);
+          continue;
+        }
+
+        const ik = {
+          target: boneArray.indexOf(targetBone),
+          effector: boneArray.indexOf(effectorBone),
+          links: links,
+        };
+
+        // 在这里，你需要一个支持旋转约束的IK解算器。这可能需要对CCDIKSolver进行扩展或使用其他支持约束的解算器
+        IKsolvers[limbName] = new CCDIKSolver(skinnedMesh, [ik]);
+        const ccdikhelper = new CCDIKHelper(skinnedMesh, [ik], 0.01);
+        scene.add(ccdikhelper);
+      }
+
+      return IKsolvers;
+    }
+
+    function createTransformControl(boneName) {
+      let control = new TransformControls(camera, renderer.domElement);
+      control.size = 0.75;
+      control.attach(rootbones[boneName]);
+      scene.add(control);
+      control.setMode('translate');
+
+      // 添加鼠标事件监听器，用于开启和关闭IK更新
+      control.addEventListener('mouseDown', () => {
+        controls.enabled = false;
+        shouldUpdateIK = true;
+      });
+      control.addEventListener('mouseUp', () => {
+        controls.enabled = true;
+        shouldUpdateIK = false;
+      });
+
+      return control;
+    }
+
+
+
+
+    //上传功能
+    function clearScene(modelPath) {
+      while (scene.children.length > 0) {
+        let child = scene.children[0];
+        if (child.isMesh) {
+          child.geometry.dispose();
+        }
+        scene.remove(child);
+      }
+      // 重置相关的变量
+      skinnedMesh = undefined;
+      IKsolvers = undefined;
+      // ...其余代码
+      initBasicSceneElements()
+      loadModel(modelPath)
     }
 
     document.getElementById('upload-form').addEventListener('submit', function (e) {
@@ -178,7 +361,7 @@
               alert('文件上传成功');
               //  clearScene(data.model_path);
               clearScene(data.model_path)
-
+              upload_file_name = data.name; // 保存上传后的模型路径
             } else {
               alert('文件上传失败');
             }
@@ -189,108 +372,110 @@
           });
       }
     });
+    //从服务器下载
+    document.getElementById('download-btn').addEventListener('click', function () {
+      window.location.href = `/download/${encodeURIComponent(upload_file_name)}`;
+    });
 
-    function clearScene(modelPath) {
-      while (scene.children.length > 0) {
-        let child = scene.children[0];
-        if (child.isMesh) {
-          child.geometry.dispose();
-        }
-        scene.remove(child);
-      }
-      // 重置相关的变量
-      skinnedMesh = undefined;
-      IKsolvers = undefined;
-      // ...其余代码
-      initBasicSceneElements()
-      loadModel(modelPath)
-    }
+    // 遍历场景中的所有SkinnedMesh，并将骨骼变换应用到网格上
+    function applySkeletonToGeometry(skinnedMesh) {
+      skinnedMesh.updateMatrixWorld(true);
+      const skeleton = skinnedMesh.skeleton;
+      const boneMatrices = skeleton.boneMatrices;
+      const geometry = skinnedMesh.geometry;
 
-    function createTransformControl(boneName) {
-      let control = new TransformControls(camera, renderer.domElement);
-      control.size = 0.75;
-      control.attach(rootbones[boneName]);
-      scene.add(control);
-      control.setMode('translate');
+      // 创建一个新的几何体，该几何体将包含应用了骨骼变换的顶点位置
+      const bakedGeometry = geometry.clone();
+      bakedGeometry.applyMatrix4(skinnedMesh.bindMatrix);
 
-      // 添加鼠标事件监听器，用于开启和关闭IK更新
-      control.addEventListener('mouseDown', () => {
-        controls.enabled = false;
-        shouldUpdateIK = true;
-      });
-      control.addEventListener('mouseUp', () => {
-        controls.enabled = true;
-        shouldUpdateIK = false;
-      });
+      const positionAttribute = bakedGeometry.attributes.position;
+      const skinIndices = geometry.attributes.skinIndex;
+      const skinWeights = geometry.attributes.skinWeight;
 
-      return control;
-    }
+      // 遍历几何体的每个顶点，应用骨骼的变换
+      for (let i = 0; i < positionAttribute.count; i++) {
+        const vertex = new THREE.Vector3();
+        vertex.fromBufferAttribute(positionAttribute, i);
 
-    function setupIKSolvers(skinnedMesh, limbIKData) {
-      const IKsolvers = {};
+        const skinIndex = new THREE.Vector4();
+        skinIndex.fromBufferAttribute(skinIndices, i);
 
-      for (const limbName in limbIKData) {
-        const limb = limbIKData[limbName];
-        const boneArray = skinnedMesh.skeleton.bones;
+        const skinWeight = new THREE.Vector4();
+        skinWeight.fromBufferAttribute(skinWeights, i);
 
-        // 检查链的目标和效应器是否存在
-        const targetBone = boneArray.find(bone => bone.name === limb.target);
-        const effectorBone = boneArray.find(bone => bone.name === limb.effector);
-        if (!targetBone || !effectorBone) {
-          console.error(`IK setup error: Target or effector bone not found for ${limbName}.`);
-          continue; // 跳过当前肢体的IK设置
-        }
+        const skinnedVertex = new THREE.Vector3();
 
-        const links = limb.links.map(linkName => {
-          const linkBone = boneArray.find(bone => bone.name === linkName);
-          if (!linkBone) {
-            console.error(`IK setup error: Link bone not found: ${linkName}.`);
-            return null; // 返回null作为标记
+        // 对于每个影响该顶点的骨骼，应用其变换矩阵
+        for (let j = 0; j < 4; j++) {
+          const boneIndex = skinIndex.getComponent(j);
+          if (skinWeight.getComponent(j) !== 0) {
+            const boneMatrix = new THREE.Matrix4().fromArray(boneMatrices, boneIndex * 16);
+            const weightedVertex = vertex.clone().applyMatrix4(boneMatrix);
+            weightedVertex.multiplyScalar(skinWeight.getComponent(j));
+            skinnedVertex.add(weightedVertex);
           }
-          return { index: boneArray.indexOf(linkBone) };
-        }).filter(link => link !== null); // 过滤掉任何未找到的链接
-
-        // 如果链接中有未找到的骨骼，则跳过IK的设置
-        if (links.length !== limb.links.length) {
-          console.error(`IK setup error: Not all link bones found for ${limbName}.`);
-          continue;
         }
 
-        // 创建IK链的数据结构
-        const ik = {
-          target: boneArray.indexOf(targetBone),
-          effector: boneArray.indexOf(effectorBone),
-          links: links
-        };
-
-        // 使用CCDIKSolver初始化IK解算器
-        IKsolvers[limbName] = new CCDIKSolver(skinnedMesh, [ik]);
-        const ccdikhelper = new CCDIKHelper(skinnedMesh, [ik], 0.01);
-        scene.add(ccdikhelper);
+        // 更新几何体的顶点位置
+        positionAttribute.setXYZ(i, skinnedVertex.x, skinnedVertex.y, skinnedVertex.z);
       }
 
-      return IKsolvers;
+      bakedGeometry.attributes.position.needsUpdate = true;
+      return bakedGeometry;
     }
 
-    function render() {
-      requestAnimationFrame(render);
-      // 更新IK
-      if (shouldUpdateIK && IKsolvers) {
-        for (const solver of Object.values(IKsolvers)) {
-          solver.update();
-        }
+    function exportBakedModelAsOBJ(bakedGeometry, skinnedMesh) {
+      // 创建包含烘焙后几何体和原有材质的新Mesh对象
+      const bakedMesh = new THREE.Mesh(bakedGeometry, skinnedMesh.material);
+
+      // 导出OBJ
+      const objExporter = new OBJExporter();
+      const objResult = objExporter.parse(bakedMesh);
+      saveFile(objResult, upload_file_name.replace('.fbx', '.obj'));
+
+      // 创建并保存MTL文件
+      const mtlContent = generateMTLContent(skinnedMesh.material);
+      saveFile(mtlContent, upload_file_name.replace('.fbx', '.mtl'));
+    }
+
+    function generateMTLContent(material) {
+      // 检查是否已经设置了贴图文件名
+      if (!textureFileName) {
+        console.error('贴图文件名未定义。');
+        return '';
       }
-      renderer.render(scene, camera);
+
+      let mtlContent = `newmtl ${material.name}\n`; // 使用通用名称 "material"
+      mtlContent += `Ka 1.000 1.000 1.000\n`;
+      mtlContent += `Kd 1.000 1.000 1.000\n`;
+      mtlContent += `Ks 0.000 0.000 0.000\n`;
+      mtlContent += `d 1\n`;
+      mtlContent += `illum 2\n`;
+      mtlContent += `map_Kd ${textureFileName}.jpg\n`; // 使用保存的贴图文件名
+
+      return mtlContent;
+    }
+    // 文件保存辅助函数
+    function saveFile(content, filename) {
+      const blob = new Blob([content], { type: 'text/plain' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     }
 
-    window.onresize = function () {
-      const width = window.innerWidth;
-      const height = window.innerHeight;
-      renderer.setSize(width, height);
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
-      renderer.render(scene, camera);
-    };
+    document.getElementById('export-btn').addEventListener('click', function () {
+      if (!skinnedMesh) {
+        console.error('No skinned mesh with a skeleton found.');
+        return;
+      }
+      const bakedGeometry = applySkeletonToGeometry(skinnedMesh);
+      exportBakedModelAsOBJ(bakedGeometry, skinnedMesh);
+    });
+
+
 
   </script>
 
